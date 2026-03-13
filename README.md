@@ -9,7 +9,7 @@ It consists of two parts:
 
 ## Summary
 
-This chatbot used Cloudflare-hosted `@cf/openai/gpt-oss-120b` and was configured to act as a CTF helper rather than a solver. It enforces server-side limits on context size, a maximum of 50 messages per conversation, and 5 requests per minute per user, while also logging usage per user. The system prompt is tuned to steer participants toward hints and explanations instead of directly giving away solutions or flags. For a 6-hour event with roughly 160 participants, the rough cost estimate is around EUR 100.
+This chatbot uses a Cloudflare-hosted AI model and is configured to act as a CTF helper rather than a solver. It enforces server-side limits on context size, a maximum of 50 messages per conversation, and 5 requests per minute per user, while also logging usage per user. The system prompt is tuned to steer participants toward hints and explanations instead of directly giving away solutions or flags. For a 6-hour event with roughly 160 participants, the rough cost estimate is around EUR 100.
 
 ### Observed behavior
 
