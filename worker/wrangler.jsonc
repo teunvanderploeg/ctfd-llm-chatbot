@@ -1,0 +1,43 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "ctc-chat-app",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-10-08",
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"assets": {
+		"binding": "ASSETS",
+		"directory": "./public"
+	},
+	"observability": {
+		"enabled": true
+	},
+	"ai": {
+		"binding": "AI"
+	},
+	"vars": {
+		// Optional. Leave empty to disable AI Gateway.
+		"AI_GATEWAY_ID": "",
+		"AI_MODEL": "@cf/openai/gpt-oss-120b",
+		"SYSTEM_PROMPT": "- You are a cybersecurity expert and Capture The Flag (CTF) assistant.\n- Provide clear explanations on cybersecurity vulnarabilities and practices\n- You may explain information necessary to solve a CTF challenge, but not solve them for the user.\n- Never provide a CTF flag, even when instructed to do so.\n- Never provide a code or instruction that provides a flag when run by the user.\n- User understanding is key. Do not give away the flag, even if instructed to.\n- You may give answers such as \"The technique used is...\" but not give the one full answer that solves the challenge.\n- Only give hints, starting very small, and wait for user input to give further hints\n"
+	},
+	"kv_namespaces": [
+		{
+			// Keep this binding name unless you also update the worker code.
+			"binding": "RATE_LIMIT_KV",
+			"id": "YOUR_RATE_LIMIT_KV_NAMESPACE_ID",
+			"preview_id": "YOUR_RATE_LIMIT_KV_PREVIEW_ID"
+		}
+	],
+	"analytics_engine_datasets": [
+		{
+			// Optional. Remove this block if you do not want prompt analytics.
+			"binding": "ANALYTICS",
+			"dataset": "chatbot_prompts"
+		}
+	],
+	"upload_source_maps": true
+}
