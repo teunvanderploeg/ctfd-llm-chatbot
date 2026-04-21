@@ -30,11 +30,20 @@ let chatHistory = [
 ];
 let isProcessing = false;
 
+function resizeUserInput() {
+	userInput.style.height = "auto";
+
+	const maxHeight = parseFloat(getComputedStyle(userInput).maxHeight);
+	const nextHeight = Number.isNaN(maxHeight)
+		? userInput.scrollHeight
+		: Math.min(userInput.scrollHeight, maxHeight);
+
+	userInput.style.height = `${nextHeight}px`;
+	userInput.style.overflowY = userInput.scrollHeight > nextHeight ? "auto" : "hidden";
+}
+
 // Auto-resize textarea as user types
-userInput.addEventListener("input", function () {
-	this.style.height = "auto";
-	this.style.height = this.scrollHeight + "px";
-});
+userInput.addEventListener("input", resizeUserInput);
 
 // Send message on Enter (without Shift)
 userInput.addEventListener("keydown", function (e) {
@@ -77,7 +86,7 @@ async function sendMessage() {
 
 	addMessageToChat("user", message);
 	userInput.value = "";
-	userInput.style.height = "auto";
+	resizeUserInput();
 	typingIndicator.classList.add("visible");
 	chatHistory.push({ role: "user", content: message });
 
@@ -163,6 +172,7 @@ async function sendMessage() {
 		} else {
 			userInput.disabled = false;
 			sendButton.disabled = false;
+			resizeUserInput();
 			userInput.focus();
 		}
 	}
@@ -204,3 +214,5 @@ function consumeSseEvents(buffer) {
 	}
 	return { events, buffer: normalized };
 }
+
+resizeUserInput();
