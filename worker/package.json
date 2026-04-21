@@ -30,6 +30,7 @@
 		"check": "tsc --noEmit && wrangler deploy --dry-run",
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
+		"dev:mock": "node dev-server.mjs",
 		"start": "wrangler dev",
 		"test": "vitest"
 	}

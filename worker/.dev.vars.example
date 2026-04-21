@@ -1,0 +1,1 @@
+LOCAL_DEV_MOCK_RESPONSE=Local dev mode is enabled. This is a mock assistant reply from the worker so you can test the chat UI without CTFd login or Workers AI.

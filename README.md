@@ -100,6 +100,28 @@ Deploy the worker:
 npx wrangler deploy
 ```
 
+### Local worker testing
+
+You can test the frontend locally without deploying it to Cloudflare or logging into CTFd first.
+
+For the simplest local loop without Cloudflare OAuth, use the mock dev server:
+
+```bash
+cd worker
+cp .dev.vars.example .dev.vars
+npm run dev:mock
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8787/chatproxy/
+```
+
+This serves the static frontend and a local mock `/api/chat` endpoint, so the `Send` button works without Workers AI or CTFd auth.
+
+For the textarea fix specifically, paste a very long multi-line prompt into the input and verify that the field stops growing and becomes internally scrollable.
+
 ## CTFd plugin
 
 Install the plugin in CTFd's `plugins` folder. 
