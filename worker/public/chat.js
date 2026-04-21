@@ -14,7 +14,6 @@ marked.setOptions({
 
 const STORAGE_KEY = "ctc-chat-state-v1";
 const DEFAULT_THREAD_TITLE = "New Chat";
-const LEGACY_DEFAULT_THREAD_TITLE = "New chat";
 const DEFAULT_GREETING = "Hello! I'm the CTC chat app! How can I help you today?";
 const MOBILE_MEDIA_QUERY = "(max-width: 900px)";
 const UNGROUPED_GROUP_LABEL = "Other Chats";
@@ -41,7 +40,6 @@ const sidebarCloseButton = document.getElementById("sidebar-close-button");
 const sidebarBackdrop = document.getElementById("sidebar-backdrop");
 const threadSidebar = document.getElementById("thread-sidebar");
 const nameModal = document.getElementById("name-modal");
-const nameDialogPanel = document.getElementById("name-dialog-panel");
 const nameDialogTitle = document.getElementById("name-dialog-title");
 const nameDialogInput = document.getElementById("name-dialog-input");
 const nameDialogError = document.getElementById("name-dialog-error");
@@ -145,29 +143,13 @@ function normalizeThread(raw) {
 				? raw.title.trim()
 				: DEFAULT_THREAD_TITLE,
 		titleSource: raw.titleSource === "manual" ? "manual" : "auto",
-		groupName:
-			typeof raw.groupName === "string"
-				? raw.groupName.trim()
-				: typeof raw.challengeName === "string"
-					? raw.challengeName.trim()
-					: "",
+		groupName: typeof raw.groupName === "string" ? raw.groupName.trim() : "",
 		messages: messages.length > 0 ? messages : [createGreetingMessage()],
 		createdAt,
 		updatedAt,
 		viewedAt,
 		ended: Boolean(raw.ended),
 	};
-}
-
-function migrateLegacyThreadTitle(thread) {
-	if (thread.titleSource === "auto" && thread.title === LEGACY_DEFAULT_THREAD_TITLE) {
-		return {
-			...thread,
-			title: DEFAULT_THREAD_TITLE,
-		};
-	}
-
-	return thread;
 }
 
 function normalizeGroupName(value) {
@@ -199,6 +181,17 @@ function normalizeGroups(rawGroups, sourceThreads) {
 	return normalizedGroups;
 }
 
+function getThreadById(threadId) {
+	return threads.find((thread) => thread.id === threadId) || null;
+}
+
+function validateGroupName(value, currentName = "") {
+	if (!value) return "Enter a group name.";
+	if (isReservedGroupName(value)) return `"${UNGROUPED_GROUP_LABEL}" is reserved.`;
+	if (value !== currentName && groups.includes(value)) return "That group already exists.";
+	return "";
+}
+
 function loadState() {
 	try {
 		const rawState = localStorage.getItem(STORAGE_KEY);
@@ -207,10 +200,7 @@ function loadState() {
 		const parsed = JSON.parse(rawState);
 		if (!parsed || !Array.isArray(parsed.threads)) return;
 
-		const normalizedThreads = parsed.threads
-			.map(normalizeThread)
-			.filter(Boolean)
-			.map(migrateLegacyThreadTitle);
+		const normalizedThreads = parsed.threads.map(normalizeThread).filter(Boolean);
 		if (normalizedThreads.length === 0) return;
 
 		threads = normalizedThreads;
@@ -243,11 +233,104 @@ function persistState() {
 }
 
 function getActiveThread() {
-	return threads.find((thread) => thread.id === activeThreadId) || null;
+	return getThreadById(activeThreadId);
 }
 
 function replaceThread(nextThread) {
 	threads = threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread));
+}
+
+function updateThread(threadId, updater) {
+	const thread = getThreadById(threadId);
+	if (!thread) return null;
+
+	const nextThread = updater(thread);
+	if (!nextThread) return null;
+
+	replaceThread(nextThread);
+	return nextThread;
+}
+
+function setThreadViewed(threadId, viewedAt = getNowIso()) {
+	return updateThread(threadId, (thread) => ({ ...thread, viewedAt }));
+}
+
+function setThreadTitle(threadId, title) {
+	return updateThread(threadId, (thread) => ({
+		...thread,
+		title,
+		titleSource: "manual",
+	}));
+}
+
+function assignThreadToGroup(threadId, groupName) {
+	const normalizedGroupName = normalizeGroupName(groupName);
+
+	return updateThread(threadId, (thread) => {
+		if (thread.groupName === normalizedGroupName) return null;
+		return {
+			...thread,
+			groupName: normalizedGroupName,
+		};
+	});
+}
+
+function addGroup(groupName) {
+	if (!groupName || groups.includes(groupName)) return false;
+	groups = [...groups, groupName];
+	return true;
+}
+
+function renameGroupInState(currentName, nextName) {
+	let didRename = false;
+	threads = threads.map((thread) => {
+		if (normalizeGroupName(thread.groupName) !== currentName) {
+			return thread;
+		}
+
+		didRename = true;
+		return { ...thread, groupName: nextName };
+	});
+
+	if (!didRename) return false;
+
+	groups = groups.map((name) => (name === currentName ? nextName : name));
+	return true;
+}
+
+function dissolveGroup(groupName) {
+	let didChange = false;
+	threads = threads.map((thread) => {
+		if (normalizeGroupName(thread.groupName) !== groupName) {
+			return thread;
+		}
+
+		didChange = true;
+		return { ...thread, groupName: "" };
+	});
+
+	if (!groups.includes(groupName)) return didChange;
+
+	groups = groups.filter((name) => name !== groupName);
+	return true;
+}
+
+function selectLatestThread(threadList = threads) {
+	return [...threadList].sort(compareThreadDates)[0] || null;
+}
+
+function renderViews(view = "all") {
+	if (view === "threadList") {
+		renderThreadList();
+		return;
+	}
+
+	if (view === "activeThread") {
+		renderActiveThread();
+		return;
+	}
+
+	renderAll();
 }
 
 function closeOpenMenus(shouldRender = false) {
@@ -814,14 +897,11 @@ function renderAll() {
 }
 
 function setActiveThread(threadId) {
-	if (!threads.some((thread) => thread.id === threadId)) return;
+	if (!getThreadById(threadId)) return;
 
-	const now = getNowIso();
 	activeThreadId = threadId;
 	closeOpenMenus();
-	threads = threads.map((thread) =>
-		thread.id === threadId ? { ...thread, viewedAt: now } : thread,
-	);
+	setThreadViewed(threadId);
 	clearComposer();
 	persistState();
 	renderAll();
@@ -859,7 +939,7 @@ function createNewThread() {
 }
 
 async function renameThread(threadId) {
-	const thread = threads.find((item) => item.id === threadId);
+	const thread = getThreadById(threadId);
 	if (!thread) return;
 
 	const trimmed = await openNameDialog({
@@ -871,11 +951,7 @@ async function renameThread(threadId) {
 	});
 	if (trimmed === null) return;
 
-	replaceThread({
-		...thread,
-		title: trimmed,
-		titleSource: "manual",
-	});
+	setThreadTitle(threadId, trimmed);
 
 	closeOpenMenus();
 	persistState();
@@ -887,35 +963,23 @@ async function createGroup() {
 		title: "Create group",
 		submitLabel: "Create",
 		placeholder: "Group name",
-		validate: (value) => {
-			if (!value) return "Enter a group name.";
-			if (isReservedGroupName(value)) return `"${UNGROUPED_GROUP_LABEL}" is reserved.`;
-			if (groups.includes(value)) return "That group already exists.";
-			return "";
-		},
+		validate: validateGroupName,
 	});
 	if (groupName === null) return;
 
-	groups = [...groups, groupName];
+	addGroup(groupName);
 	closeOpenMenus();
 	persistState();
-	renderThreadList();
+	renderViews("threadList");
 }
 
 function moveThreadToGroup(threadId, groupName) {
-	const thread = threads.find((item) => item.id === threadId);
-	if (!thread) return;
+	const updatedThread = assignThreadToGroup(threadId, groupName);
+	if (!updatedThread) return;
 
 	const normalizedGroupName = normalizeGroupName(groupName);
-	if (thread.groupName === normalizedGroupName) return;
-
-	replaceThread({
-		...thread,
-		groupName: normalizedGroupName,
-	});
-
 	if (normalizedGroupName && !groups.includes(normalizedGroupName)) {
-		groups = [...groups, normalizedGroupName];
+		addGroup(normalizedGroupName);
 	}
 
 	closeOpenMenus();
@@ -930,7 +994,7 @@ function deleteThread(threadId) {
 	threads = remainingThreads.length > 0 ? remainingThreads : [createThread()];
 
 	if (!threads.some((thread) => thread.id === activeThreadId)) {
-		activeThreadId = [...threads].sort(compareThreadDates)[0].id;
+		activeThreadId = selectLatestThread(threads)?.id || null;
 	}
 
 	closeOpenMenus();
@@ -963,29 +1027,17 @@ async function renameGroup(groupName) {
 		submitLabel: "Save",
 		initialValue: normalizedCurrent,
 		placeholder: "Group name",
-		validate: (value) => {
-			if (!value) return "Enter a group name.";
-			if (isReservedGroupName(value)) return `"${UNGROUPED_GROUP_LABEL}" is reserved.`;
-			if (value !== normalizedCurrent && groups.includes(value)) {
-				return "That group already exists.";
-			}
-			return "";
-		},
+		validate: (value) => validateGroupName(value, normalizedCurrent),
 	});
 	if (normalizedNext === null) return;
 
 	if (normalizedNext === normalizedCurrent) {
 		closeOpenMenus();
-		renderThreadList();
+		renderViews("threadList");
 		return;
 	}
 
-	threads = threads.map((thread) =>
-		normalizeGroupName(thread.groupName) === normalizedCurrent
-			? { ...thread, groupName: normalizedNext }
-			: thread,
-	);
-	groups = groups.map((name) => (name === normalizedCurrent ? normalizedNext : name));
+	renameGroupInState(normalizedCurrent, normalizedNext);
 	closeOpenMenus();
 	persistState();
 	renderAll();
@@ -1006,12 +1058,7 @@ function removeGroup(groupName) {
 	);
 	if (!shouldRemove) return;
 
-	threads = threads.map((thread) =>
-		normalizeGroupName(thread.groupName) === normalizedGroupName
-			? { ...thread, groupName: "" }
-			: thread,
-	);
-	groups = groups.filter((name) => name !== normalizedGroupName);
+	dissolveGroup(normalizedGroupName);
 	closeOpenMenus();
 	persistState();
 	renderAll();
@@ -1024,29 +1071,25 @@ function clearGroupDragHighlights() {
 }
 
 function updateThreadMessages(threadId, updater, options = {}) {
-	const thread = threads.find((item) => item.id === threadId);
-	if (!thread) return null;
+	return updateThread(threadId, (thread) => {
+		const updatedMessages = updater([...thread.messages]);
+		if (!updatedMessages) return null;
 
-	const updatedMessages = updater([...thread.messages]);
-	if (!updatedMessages) return null;
-
-	const updatedThread = {
-		...thread,
-		messages: updatedMessages,
-		updatedAt: options.touch === false ? thread.updatedAt : getNowIso(),
-		viewedAt:
-			options.markViewed === true
-				? getNowIso()
-				: options.markViewed === false
-					? thread.viewedAt
-					: thread.id === activeThreadId
-						? getNowIso()
-						: thread.viewedAt,
-		ended: options.ended ?? thread.ended,
-	};
-
-	replaceThread(updatedThread);
-	return updatedThread;
+		return {
+			...thread,
+			messages: updatedMessages,
+			updatedAt: options.touch === false ? thread.updatedAt : getNowIso(),
+			viewedAt:
+				options.markViewed === true
+					? getNowIso()
+					: options.markViewed === false
+						? thread.viewedAt
+						: thread.id === activeThreadId
+							? getNowIso()
+							: thread.viewedAt,
+			ended: options.ended ?? thread.ended,
+		};
+	});
 }
 
 function getRequestMessages(thread) {
@@ -1119,6 +1162,159 @@ function setTemporaryButtonIcon(button, iconSvg, timeoutMs = 1200) {
 	}, timeoutMs);
 }
 
+function removeTrailingEmptyAssistantMessage(messages) {
+	const nextMessages = [...messages];
+	if (nextMessages.at(-1)?.role === "assistant" && !nextMessages.at(-1)?.content) {
+		nextMessages.pop();
+	}
+	return nextMessages;
+}
+
+function appendAssistantErrorMessage(messages, content) {
+	return [
+		...removeTrailingEmptyAssistantMessage(messages),
+		{ role: "assistant", content, isError: true },
+	];
+}
+
+function prepareOutgoingThread(thread, message) {
+	const shouldAutoTitle =
+		thread.titleSource !== "manual" && thread.messages.filter((item) => item.role === "user").length === 0;
+
+	return {
+		...thread,
+		title: shouldAutoTitle ? getThreadTitleFromMessage(message) : thread.title,
+		messages: [...thread.messages, { role: "user", content: message, isError: false }, createAssistantPlaceholder()],
+		updatedAt: getNowIso(),
+	};
+}
+
+function createAssistantPlaceholder() {
+	return { role: "assistant", content: "", isError: false };
+}
+
+async function requestChatResponse(thread) {
+	if (!thread) {
+		throw new Error("Chat thread not found.");
+	}
+
+	const response = await fetch(`${basePath}/api/chat`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		credentials: "include",
+		body: JSON.stringify({
+			messages: getRequestMessages(thread),
+			conversationId: thread.id,
+		}),
+	});
+
+	if (response.ok) {
+		return response;
+	}
+
+	const body = await response.json().catch(() => ({}));
+	if (body.code === "HISTORY_TOO_LONG") {
+		const error = new Error("HISTORY_TOO_LONG");
+		error.cause = body;
+		throw error;
+	}
+
+	throw new Error(extractErrorMessage(body) || `Request failed (${response.status})`);
+}
+
+function applyAssistantChunk(threadId, content, markViewed) {
+	updateThreadMessages(
+		threadId,
+		(messages) => {
+			const nextMessages = [...messages];
+			const lastMessage = nextMessages.at(-1);
+			if (!lastMessage || lastMessage.role !== "assistant") {
+				return nextMessages;
+			}
+
+			nextMessages[nextMessages.length - 1] = {
+				...lastMessage,
+				content,
+			};
+			return nextMessages;
+		},
+		{ touch: false, markViewed },
+	);
+}
+
+function finalizeAssistantPlaceholder(threadId) {
+	updateThreadMessages(threadId, (messages) => removeTrailingEmptyAssistantMessage(messages));
+}
+
+function failThreadResponse(threadId, message, options = {}) {
+	updateThreadMessages(
+		threadId,
+		(messages) => appendAssistantErrorMessage(messages, message),
+		{ ended: options.ended },
+	);
+}
+
+function handleRequestError(threadId, error) {
+	if (error instanceof Error && error.message === "HISTORY_TOO_LONG") {
+		const body = error.cause && typeof error.cause === "object" ? error.cause : {};
+		failThreadResponse(
+			threadId,
+			`${body.error || "Chat history too long"}. Start a new chat to continue.`,
+			{ ended: true },
+		);
+		return;
+	}
+
+	failThreadResponse(
+		threadId,
+		error instanceof Error ? error.message : "Something went wrong.",
+	);
+}
+
+async function streamChatResponse(threadId, response) {
+	if (!response.body) {
+		throw new Error("Response body is null");
+	}
+
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let responseText = "";
+	let buffer = "";
+
+	while (true) {
+		const { done, value } = await reader.read();
+		if (!done) {
+			buffer += decoder.decode(value, { stream: true });
+		}
+
+		const parsed = consumeSseEvents(done ? buffer + "\n\n" : buffer);
+		buffer = parsed.buffer;
+
+		for (const data of parsed.events) {
+			if (data === "[DONE]") break;
+
+			const json = JSON.parse(data);
+			if (json.error) {
+				throw new Error("An error occurred");
+			}
+
+			const content = json.response ?? json.choices?.[0]?.delta?.content ?? "";
+			if (!content) continue;
+
+			responseText += content;
+			applyAssistantChunk(threadId, responseText, activeThreadId === threadId);
+			persistState();
+			if (activeThreadId === threadId) {
+				renderViews("activeThread");
+			}
+		}
+
+		if (done) break;
+	}
+
+	return responseText;
+}
+
 async function sendMessage() {
 	const activeThread = getActiveThread();
 	const message = userInput.value.trim();
@@ -1127,17 +1323,7 @@ async function sendMessage() {
 		return;
 	}
 
-	const userMessage = { role: "user", content: message, isError: false };
-	const shouldAutoTitle =
-		activeThread.titleSource !== "manual" &&
-		activeThread.messages.filter((item) => item.role === "user").length === 0;
-
-	replaceThread({
-		...activeThread,
-		title: shouldAutoTitle ? getThreadTitleFromMessage(message) : activeThread.title,
-		messages: [...activeThread.messages, userMessage, { role: "assistant", content: "", isError: false }],
-		updatedAt: getNowIso(),
-	});
+	replaceThread(prepareOutgoingThread(activeThread, message));
 
 	pendingThreads.add(activeThread.id);
 	clearComposer();
@@ -1145,125 +1331,16 @@ async function sendMessage() {
 	renderAll();
 
 	try {
-		const currentThread = threads.find((thread) => thread.id === activeThread.id);
-		const response = await fetch(`${basePath}/api/chat`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			credentials: "include",
-			body: JSON.stringify({
-				messages: getRequestMessages(currentThread),
-				conversationId: activeThread.id,
-			}),
-		});
-
-		if (!response.ok) {
-			const body = await response.json().catch(() => ({}));
-			if (body.code === "HISTORY_TOO_LONG") {
-				updateThreadMessages(
-					activeThread.id,
-					(messages) => {
-						const nextMessages = [...messages];
-						if (nextMessages.at(-1)?.role === "assistant" && !nextMessages.at(-1)?.content) {
-							nextMessages.pop();
-						}
-
-						nextMessages.push({
-							role: "assistant",
-							content: `${body.error || "Chat history too long"}. Start a new chat to continue.`,
-							isError: true,
-						});
-						return nextMessages;
-					},
-					{ ended: true },
-				);
-
-				return;
-			}
-
-			throw new Error(extractErrorMessage(body) || `Request failed (${response.status})`);
-		}
-
-		if (!response.body) {
-			throw new Error("Response body is null");
-		}
-
-		const reader = response.body.getReader();
-		const decoder = new TextDecoder();
-		let responseText = "";
-		let buffer = "";
-
-		while (true) {
-			const { done, value } = await reader.read();
-			if (!done) {
-				buffer += decoder.decode(value, { stream: true });
-			}
-
-			const parsed = consumeSseEvents(done ? buffer + "\n\n" : buffer);
-			buffer = parsed.buffer;
-
-			for (const data of parsed.events) {
-				if (data === "[DONE]") break;
-
-				const json = JSON.parse(data);
-				if (json.error) {
-					throw new Error("An error occurred");
-				}
-
-				const content = json.response ?? json.choices?.[0]?.delta?.content ?? "";
-				if (!content) continue;
-
-				responseText += content;
-				updateThreadMessages(
-					activeThread.id,
-					(messages) => {
-						const nextMessages = [...messages];
-						const lastMessage = nextMessages.at(-1);
-						if (!lastMessage || lastMessage.role !== "assistant") {
-							return nextMessages;
-						}
-
-						nextMessages[nextMessages.length - 1] = {
-							...lastMessage,
-							content: responseText,
-						};
-						return nextMessages;
-					},
-					{ touch: false, markViewed: activeThreadId === activeThread.id },
-				);
-
-				persistState();
-				if (activeThreadId === activeThread.id) {
-					renderActiveThread();
-				}
-			}
-
-			if (done) break;
-		}
+		const currentThread = getThreadById(activeThread.id);
+		const response = await requestChatResponse(currentThread);
+		const responseText = await streamChatResponse(activeThread.id, response);
 
 		if (!responseText) {
-			updateThreadMessages(activeThread.id, (messages) => {
-				const nextMessages = [...messages];
-				if (nextMessages.at(-1)?.role === "assistant" && !nextMessages.at(-1)?.content) {
-					nextMessages.pop();
-				}
-				return nextMessages;
-			});
+			finalizeAssistantPlaceholder(activeThread.id);
 		}
 	} catch (error) {
 		console.error("Error:", error);
-		updateThreadMessages(activeThread.id, (messages) => {
-			const nextMessages = [...messages];
-			if (nextMessages.at(-1)?.role === "assistant" && !nextMessages.at(-1)?.content) {
-				nextMessages.pop();
-			}
-
-			nextMessages.push({
-				role: "assistant",
-				content: error instanceof Error ? error.message : "Something went wrong.",
-				isError: true,
-			});
-			return nextMessages;
-		});
+		handleRequestError(activeThread.id, error);
 	} finally {
 		pendingThreads.delete(activeThread.id);
 		persistState();
@@ -1317,11 +1394,9 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("click", (event) => {
-	if (isNameDialogOpen() && !event.target.closest("#name-dialog-panel")) {
-		if (event.target === nameModal) {
-			closeNameDialog();
-			return;
-		}
+	if (isNameDialogOpen() && event.target === nameModal) {
+		closeNameDialog();
+		return;
 	}
 
 	if (!openThreadMenuId && !openGroupMenuName) return;
@@ -1472,9 +1547,7 @@ if (threads.length === 0) {
 	activeThreadId = initialThread.id;
 	persistState();
 } else if (activeThreadId) {
-	threads = threads.map((thread) =>
-		thread.id === activeThreadId ? { ...thread, viewedAt: getNowIso() } : thread,
-	);
+	setThreadViewed(activeThreadId);
 	persistState();
 }
 
